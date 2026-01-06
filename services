@@ -1,0 +1,396 @@
+Digital Client Payments
+Comprehensive Module Design (PDF-Ready)
+1. Payment API (Application Gateway / Facade)
+Purpose
+
+Acts as the single entry point for UI and file-based payment interactions. Shields core domain services from channel-specific concerns.
+
+Responsibilities
+
+Accept UI & file payment requests
+
+Handle file upload streaming
+
+Perform request schema validation
+
+Apply idempotency
+
+Normalize payloads into domain commands
+
+Route requests to File Processor or Payment Originator
+
+Enforce rate limits & size limits
+
+Non-Responsibilities
+
+Business validation
+
+Entitlement checks
+
+Payment orchestration
+
+File or payment state ownership
+
+Interfaces
+
+REST APIs (UI, file upload)
+
+Kafka producer (file-to-process)
+
+Data
+
+Stateless (no business DB)
+
+Design Patterns
+
+API Facade
+
+BFF (Backend for Frontend)
+
+Idempotent Consumer
+
+2. File Processor Service
+Purpose
+
+Technically processes uploaded files by streaming, parsing, and emitting events, without owning business decisions.
+
+Responsibilities
+
+Store uploaded files in object storage
+
+Parse files in a streaming manner
+
+Perform structural (format-level) validation
+
+Emit parsing boundary events
+
+Emit parsed payment records
+
+Persist technical checkpoints for restart
+
+Non-Responsibilities
+
+Business validation
+
+Entitlement checks
+
+Approval logic
+
+File completion decisions
+
+Persistence
+
+Object storage (raw file)
+
+Checkpoint DB (technical state only)
+
+Events Produced
+
+FileParsingStarted
+
+PaymentRecordParsed
+
+FileParsingCompleted
+
+FileParsingFailed
+
+Design Patterns
+
+Streaming Processor
+
+Competing Consumers
+
+Checkpoint / Resume
+
+At-least-once delivery
+
+3. Payment Originator Service (Core Domain)
+Purpose
+
+Acts as the System of Record (SoR) for payments, batches, and files.
+
+Responsibilities
+
+Persist file, batch & payment aggregates
+
+Consume file & payment events
+
+Deduplicate payment records
+
+Perform augmentation, validation & entitlement orchestration
+
+Manage approval workflows
+
+Convert payments to ISO 20022
+
+Submit payments to BEM
+
+Track execution results
+
+Maintain authoritative file state
+
+Persistence
+
+RDBMS (payments, files, batches, states)
+
+Events Consumed
+
+FileParsingStarted
+
+PaymentRecordParsed
+
+FileParsingCompleted
+
+Events Produced
+
+PaymentCreated
+
+PaymentValidated
+
+FileStateChanged
+
+PaymentExecuted
+
+Design Patterns
+
+Domain-Driven Design
+
+Aggregate Root (File, Batch, Payment)
+
+Saga / Process Manager
+
+Event-Driven Architecture
+
+Idempotent Consumer
+
+4. Augmentation Service
+Purpose
+
+Enriches payment requests using internal and external reference data before validation and entitlement checks.
+
+Responsibilities
+
+Enrich beneficiary bank details
+
+Populate SWIFT, routing, branch data
+
+Apply FX rate enrichment
+
+Normalize country & currency codes
+
+Dependencies
+
+Reference Data Systems
+
+CCSS (Account & LE data)
+
+Design Patterns
+
+Domain Service
+
+Retry with Backoff
+
+Cache-aside
+
+5. Entitlement Service
+Purpose
+
+Determines whether a user is authorized to perform a specific payment action.
+
+Responsibilities
+
+Validate user entitlements
+
+Enforce account-level permissions
+
+Enforce amount thresholds
+
+Validate scheme & channel permissions
+
+Validate template usage
+
+Design Patterns
+
+Policy Engine
+
+Stateless Validation Service
+
+6. Validation Service
+Purpose
+
+Ensures payments comply with business rules and scheme requirements.
+
+Responsibilities
+
+Scheme-specific validation (UK, US, SEPA)
+
+Amount & currency checks
+
+Mandatory field checks
+
+Duplicate detection (business level)
+
+Design Patterns
+
+Strategy Pattern (per scheme)
+
+Stateless Validator
+
+7. Workflow / Approval Service
+Purpose
+
+Manages maker–checker and multi-level approval workflows.
+
+Responsibilities
+
+Start approval workflows
+
+Apply approval rules & thresholds
+
+Support delegation & escalation
+
+Track approval status
+
+Design Patterns
+
+Workflow Engine
+
+State Machine
+
+8. ISO 20022 Converter
+Purpose
+
+Transforms internal payment models into ISO 20022 compliant messages.
+
+Responsibilities
+
+Map domain model → pain.001 / pain.008
+
+Support scheme-specific variants
+
+Ensure compliance with downstream systems
+
+Design Patterns
+
+Adapter
+
+Mapper
+
+9. Digital Signature Service (GSS Integration)
+Purpose
+
+Ensures non-repudiation and transaction integrity.
+
+Responsibilities
+
+Generate digital signatures per payment or batch
+
+Validate signing policies
+
+Attach signatures to ISO messages
+
+10. Payment Execution (BEM / POM)
+Purpose
+
+Routes payments to appropriate downstream rails.
+
+Responsibilities
+
+Fraud checks
+
+Routing decisions
+
+Retry & reconciliation
+
+Execution acknowledgements
+
+(External – not owned by DCP)
+
+11. Reporting & Query Service (Read Model)
+Purpose
+
+Provides UI-friendly, read-only views of payment & file state.
+
+Responsibilities
+
+Search payments
+
+View file status
+
+Export transaction history
+
+Support async download for large datasets
+
+Data
+
+Denormalized read model
+
+Event-driven projections
+
+Design Patterns
+
+CQRS
+
+Event Projection
+
+12. Event Streaming Platform (Kafka)
+Purpose
+
+Provides decoupled, resilient communication between services.
+
+Topics
+
+file-to-process (work assignment)
+
+file-parsing-events
+
+payment-record-events
+
+payment-domain-events
+
+Design Principles
+
+Topic separation by intent
+
+Idempotent consumers
+
+At-least-once delivery
+
+13. Cross-Cutting Concerns
+Security
+
+AuthN/AuthZ via Corporate Portal
+
+Signed requests
+
+Audit trails
+
+Resilience
+
+Retry with backoff
+
+Circuit breakers
+
+Idempotency keys
+
+Observability
+
+Distributed tracing
+
+Structured logging
+
+Business metrics (file completion rate)
+
+14. Key Architecture Decisions (Summary)
+
+Payment Originator is single system of record
+
+File Processor is stateless business-wise
+
+File state is persisted in DB
+
+UI reads from read model
+
+Bulk payments are event-driven
+
+File processing is restartable and idempotent
