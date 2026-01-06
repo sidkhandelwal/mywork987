@@ -1,0 +1,73 @@
+3️⃣ Updated End-to-End Async Bulk File Flow
+@startuml
+title End-to-End Async Bulk File Payment Flow (with UI Acknowledgement)
+
+actor "Corporate User" as User
+participant "Corporate Portal" as Portal
+participant "Payment API" as API
+participant "Payment Originator" as ORIG
+database "Originator DB" as DB
+participant "Kafka\n(file-to-process)" as K1
+participant "File Processor Pod" as FP
+participant "Kafka\n(file & payment events)" as K2
+participant "BEM / POM" as BEM
+
+== File Upload & UI Acknowledgement ==
+User -> Portal : Upload bulk payment file
+Portal -> API : POST /files
+API -> ORIG : Create FileAggregate
+ORIG -> DB : Persist file (state=RECEIVED)
+ORIG --> API : fileId, state=RECEIVED
+API --> Portal : 202 Accepted + fileId\nstatus=RECEIVED
+Portal --> User : "File received successfully"
+
+API -> K1 : Publish FileToProcess(fileId)
+
+== File Assignment ==
+K1 -> FP : Deliver FileToProcess
+
+== File Parsing (Streaming) ==
+FP -> FP : Store file & open stream
+FP -> K2 : FileParsingStarted(fileId, expectedCount)
+
+K2 -> ORIG : Consume FileParsingStarted
+ORIG -> DB : Update file state = PARSING
+
+loop For each payment record
+    FP -> FP : Parse next record
+    FP -> K2 : PaymentRecordParsed(fileId, recordSeq, payload)
+    K2 -> ORIG : Consume PaymentRecordParsed
+    ORIG -> DB : Persist PaymentAggregate
+end
+
+FP -> K2 : FileParsingCompleted(fileId, totalRecords)
+
+== Parsing Completion ==
+K2 -> ORIG : Consume FileParsingCompleted
+ORIG -> DB : Validate counts & mark PAYMENTS_CREATED
+
+== Post-Parsing Processing ==
+ORIG -> ORIG : Augmentation
+ORIG -> ORIG : Entitlement & Validation
+ORIG -> DB : Update file state = PENDING_APPROVAL
+
+== Approval ==
+User -> Portal : Approve file
+Portal -> API : Approve file
+API -> ORIG : Approve command
+ORIG -> DB : Update file state = APPROVED
+
+== Execution ==
+ORIG -> BEM : Submit batch
+BEM --> ORIG : Async execution results
+ORIG -> DB : Update payment & file state
+
+== UI Status Query ==
+Portal -> API : GET /files/{fileId}
+API -> ORIG : Query file status
+ORIG -> DB : Read file state
+ORIG --> API : File status
+API --> Portal : File status
+Portal --> User : Display updated state
+
+@enduml
