@@ -1,0 +1,143 @@
+======================================
+@startuml
+title C2 - Digital Client Payments (Containers)
+
+actor "Corporate User" as User
+rectangle "Corporate Portal" as Portal
+
+rectangle "Payment API" as PaymentAPI
+rectangle "File Processor" as FileProcessor
+rectangle "Payment Originator" as Originator
+rectangle "Augmentation Service" as Augmentation
+rectangle "Entitlement Service" as Entitlement
+rectangle "Validation Service" as Validation
+rectangle "Workflow Service" as Workflow
+database "Payment DB" as DB
+
+queue "Kafka - file-to-process" as K1
+queue "Kafka - payment-events" as K2
+
+rectangle "CCSS" as CCSS
+rectangle "Reference Data Systems" as Ref
+rectangle "BEM & POM" as BEM
+
+User --> Portal
+Portal --> PaymentAPI
+
+PaymentAPI --> Originator : create file/payment
+PaymentAPI --> K1 : publish FileToProcess
+
+K1 --> FileProcessor
+FileProcessor --> K2 : publish file/payment events
+
+K2 --> Originator
+
+Originator --> DB
+Originator --> Augmentation
+Originator --> Entitlement
+Originator --> Validation
+Originator --> Workflow
+Originator --> BEM
+
+Augmentation --> Ref
+Originator --> CCSS
+
+@enduml
+
+
+
+===================================
+
+
+@startuml
+title C3 - Payment Originator (Components)
+
+package "Payment Originator" {
+
+  [File Event Consumer]
+  [Payment Record Consumer]
+
+  package "Domain" {
+    [File Aggregate]
+    [Payment Aggregate]
+  }
+
+  [Process Manager]
+  [Outbox Dispatcher]
+  [ISO Converter]
+  [BEM Client]
+
+  database "Originator DB"
+}
+
+[File Event Consumer] --> [File Aggregate]
+[Payment Record Consumer] --> [Payment Aggregate]
+
+[File Aggregate] --> [Process Manager]
+[Process Manager] --> [Outbox Dispatcher]
+
+[Payment Aggregate] --> "Originator DB"
+[File Aggregate] --> "Originator DB"
+
+[Outbox Dispatcher] --> [Process Manager]
+
+[Process Manager] --> [ISO Converter]
+[ISO Converter] --> [BEM Client]
+
+@enduml
+
+
+==================================
+
+
+@startuml
+title C3 - File Processor (Components)
+
+package "File Processor" {
+
+  [File To Process Consumer]
+  [File Receiver]
+  [Streaming Parser]
+  [Structural Validator]
+  [Checkpoint Manager]
+  [Event Publisher]
+
+  database "Checkpoint DB"
+  database "Object Storage"
+}
+
+[File To Process Consumer] --> [File Receiver]
+[File Receiver] --> [Object Storage]
+[File Receiver] --> [Streaming Parser]
+[Streaming Parser] --> [Structural Validator]
+[Streaming Parser] --> [Event Publisher]
+[Streaming Parser] --> [Checkpoint Manager]
+[Checkpoint Manager] --> "Checkpoint DB"
+
+@enduml
+
+
+======================
+
+
+@startuml
+title C3 - Payment API (Components)
+
+package "Payment API" {
+
+  [REST Controller]
+  [Request Validator]
+  [Idempotency Filter]
+  [Command Mapper]
+  [File Upload Adapter]
+}
+
+[REST Controller] --> [Request Validator]
+[REST Controller] --> [Idempotency Filter]
+[REST Controller] --> [Command Mapper]
+[REST Controller] --> [File Upload Adapter]
+
+@enduml
+
+================
+
