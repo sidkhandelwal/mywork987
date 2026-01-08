@@ -1,0 +1,78 @@
+@startuml
+title Type 1 File - Detailed Sequence with Persistence
+
+actor User
+participant UI
+participant API
+participant Originator
+database DB
+participant S3
+participant Kafka_File
+participant FileProcessor
+participant Kafka_Record
+participant Augmentation
+participant Entitlement
+participant Validation
+participant Workflow
+participant POM
+
+== File Upload ==
+User -> UI : Upload Type 1 file
+UI -> API : POST /files
+API -> S3 : PUT raw file
+API -> Originator : CreateFileCommand(file metadata)
+Originator -> DB : INSERT file_aggregate\n(status=RECEIVED)
+API -> Kafka_File : Publish FileToProcess(fileId)
+API -> UI : 202 Accepted (fileId)
+
+== File Parsing ==
+Kafka_File -> FileProcessor : FileToProcess
+FileProcessor -> S3 : GET raw file
+FileProcessor -> FileProcessor : Stream parse file
+FileProcessor -> Kafka_Record : RecordParsed(recordData)
+FileProcessor -> Kafka_Record : FileParsingCompleted(fileId)
+
+== Transaction-Level Processing ==
+Kafka_Record -> Originator : RecordParsed
+Originator -> Augmentation : Enrich transaction
+Augmentation -> Originator : Enriched data
+Originator -> Entitlement : Check entitlement
+Entitlement -> Originator : Allowed / Denied
+Originator -> Validation : Validate transaction
+Validation -> Originator : Valid / Invalid
+Originator -> DB : INSERT file_transaction\n(validation status, errors)
+
+== File-Level Aggregation ==
+Kafka_Record -> Originator : FileParsingCompleted
+Originator -> DB : UPDATE file_aggregate\n(status=VALID / PARTIAL / INVALID)
+Originator -> DB : INSERT file_audit\n(validation summary)
+
+== File Approval ==
+User -> UI : Approve file
+UI -> API : POST /files/{id}/approve
+API -> Originator : ApproveFileCommand
+Originator -> Workflow : Start approval workflow
+Workflow -> Originator : Approved
+Originator -> DB : UPDATE file_aggregate\n(status=APPROVED)
+
+== File Enrichment ==
+Originator -> S3 : GET raw file
+Originator -> Augmentation : Enrich full file
+Augmentation -> Originator : Enriched file
+Originator -> S3 : PUT enriched file
+
+== File Submission ==
+Originator -> POM : Send enriched file
+POM -> Originator : Accepted / Rejected
+Originator -> DB : UPDATE file_aggregate\n(status=SUBMITTED / FAILED)
+Originator -> DB : INSERT file_audit\n(submission result)
+
+== UI Status Query ==
+UI -> API : GET /files/{id}
+API -> Originator : Query file status
+Originator -> DB : SELECT file_aggregate
+Originator -> DB : SELECT file_transaction
+Originator -> API : File + transaction details
+API -> UI : Display file & record status
+
+@enduml
