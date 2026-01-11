@@ -1,0 +1,220 @@
+Below is a formal Architecture Decision Record (ADR) for the Internal Worker Design, written in an enterprise / bank-standard format and aligned exactly with your DCP architecture (Originator, DB-backed work queue, async flows, crash safety).
+
+You can paste this directly into your ADR repository or architecture pack.
+
+ADR-008: Internal Worker Design for Asynchronous Payment Processing
+
+Status: Approved
+Date: 2026-01-08
+Decision Owner: Digital Client Payments Architecture
+Applies To: Payment Originator Service
+Related ADRs:
+
+ADR-001 Domain-Driven Design Adoption
+
+ADR-004 Event-Driven Integration Strategy
+
+ADR-006 File Processing Architecture
+
+1. Context
+
+Digital Client Payments (DCP) supports multiple asynchronous processing scenarios, including:
+
+File-based payments (Type-1 and Type-2)
+
+Bulk UI payments
+
+Multi-beneficiary payments
+
+Future-dated payments
+
+Long-running workflows involving validation, entitlement, approval, and execution
+
+These scenarios require:
+
+Reliable asynchronous processing
+
+Strong consistency for payment state
+
+Safe recovery from pod crashes
+
+Horizontal scalability
+
+Minimal operational complexity
+
+Traditional schedulers (e.g. Quartz), message brokers, or in-memory task execution introduce challenges related to consistency, recovery, and operational overhead.
+
+2. Decision
+
+The system will implement an Internal Worker within the Payment Originator service, using a database-backed work queue and state-driven processing, instead of an external scheduler or separate orchestration service.
+
+The Internal Worker will:
+
+Continuously poll a persistent work table (outbox/work queue)
+
+Claim work items using database row-level locking
+
+Execute asynchronous processing steps idempotently
+
+Support retries, backoff, and crash recovery
+
+Scale horizontally across multiple pods
+
+3. Design Details
+3.1 Work Persistence Model
+
+A dedicated work table (or transactional outbox) will be used:
+
+payment_work
+- work_id
+- aggregate_id (paymentId / fileId)
+- command_type (PROCESS_PAYMENT, PROCESS_FILE)
+- status (NEW, IN_PROGRESS, DONE, FAILED)
+- retry_count
+- next_retry_at
+- updated_at
+
+
+Work records are written transactionally alongside aggregate state changes.
+
+3.2 Work Claiming Mechanism
+
+Workers claim work using pessimistic row-level locking:
+
+SELECT work_id
+FROM payment_work
+WHERE status = 'NEW'
+  AND next_retry_at <= NOW()
+ORDER BY updated_at
+LIMIT N
+FOR UPDATE SKIP LOCKED;
+
+
+This ensures:
+
+No two pods process the same work
+
+No blocking or deadlocks
+
+Safe parallelism across pods
+
+3.3 Worker Execution Model
+
+Each Payment Originator pod runs one or more worker loops:
+
+while (running):
+  claim work
+  process work
+  update state
+  retry or complete
+  backoff when idle
+
+
+Workers are:
+
+Lightweight
+
+Always-on
+
+Backoff-aware when idle
+
+3.4 Failure and Recovery Handling
+Failure Scenario	Handling
+Pod crash before claim	Work remains NEW
+Pod crash after claim	Work reset by timeout
+Partial processing	State-driven idempotent retry
+External dependency failure	Retry with exponential backoff
+Business rule failure	Mark FAILED (non-retryable)
+
+A background recovery process resets stale IN_PROGRESS work.
+
+3.5 Future-Dated Payments
+
+Future-dated payments are handled by setting next_retry_at to the execution date.
+No separate scheduler is required.
+
+4. Alternatives Considered
+4.1 Quartz / Cron-Based Scheduler
+
+Rejected
+
+Requires cluster coordination
+
+Introduces scheduler DB state
+
+Poor horizontal scalability
+
+Complex failure semantics
+
+4.2 Kafka-Based Internal Workflow
+
+Rejected
+
+Adds unnecessary infrastructure
+
+Eventual consistency risks
+
+Harder state recovery
+
+Higher operational cost
+
+4.3 External Orchestration Engine (e.g. Camunda)
+
+Rejected
+
+Heavyweight
+
+Additional operational overhead
+
+Duplicates domain logic
+
+Not required for current complexity
+
+5. Consequences
+Positive Consequences
+
+Strong consistency for payment state
+
+Simple operational model
+
+Automatic crash recovery
+
+Horizontal scalability
+
+No external scheduler dependency
+
+Trade-offs
+
+Requires careful DB indexing
+
+Polling must be tuned to avoid excessive load
+
+Developers must implement idempotent processing
+
+6. Architecture Principles Alignment
+
+This decision aligns with:
+
+AP-01 Single Source of Truth
+
+AP-03 Stateless Edge, Stateful Core
+
+AP-08 Operational Simplicity
+
+AP-09 Idempotency and Crash Safety
+
+AP-06 Strong Consistency for Financial State
+
+7. Compliance and Audit Considerations
+
+All work is durably persisted
+
+Processing is traceable via audit events
+
+Retry and failure paths are observable
+
+Supports regulatory audit and operational resilience requirements
+
+8. Decision Summary (One-Line)
+
+Asynchronous payment processing is implemented using an internal, database-backed worker within the Payment Originator to ensure strong consistency, crash safety, and operational simplicity without introducing external schedulers.
