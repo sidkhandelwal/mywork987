@@ -1,0 +1,77 @@
+@startuml
+title Type 2 File - Detailed Sequence with Persistence
+
+actor User
+participant UI
+participant API
+participant Originator
+database DB
+participant S3
+participant Kafka_File
+participant FileProcessor
+participant Kafka_Payment
+participant Augmentation
+participant Entitlement
+participant Validation
+participant Workflow
+participant BEM
+
+== File Upload ==
+User -> UI : Upload Type 2 file
+UI -> API : POST /files
+API -> S3 : PUT raw file
+API -> Originator : CreateFileCommand(file metadata)
+Originator -> DB : INSERT file_aggregate\n(status=RECEIVED)
+API -> Kafka_File : Publish FileToProcess(fileId)
+API -> UI : 202 Accepted (fileId)
+
+== File Parsing ==
+Kafka_File -> FileProcessor : FileToProcess
+FileProcessor -> S3 : GET raw file
+FileProcessor -> FileProcessor : Stream parse file
+FileProcessor -> Kafka_Payment : PaymentRecordParsed(recordData)
+FileProcessor -> Kafka_Payment : FileParsingCompleted(fileId)
+
+== Payment Creation ==
+Kafka_Payment -> Originator : PaymentRecordParsed
+Originator -> DB : INSERT payment_aggregate\n(status=CREATED, fileId)
+
+== Async Payment Processing ==
+Originator -> Augmentation : Enrich payment
+Augmentation -> Originator : Enriched data
+Originator -> Entitlement : Check entitlement
+Entitlement -> Originator : Allowed
+Originator -> Validation : Validate payment
+Validation -> Originator : Valid
+Originator -> DB : UPDATE payment_aggregate\n(status=PENDING_APPROVAL)
+
+== Approval ==
+User -> UI : Approve payments
+UI -> API : Approve request
+API -> Originator : ApprovePaymentCommand
+Originator -> Workflow : Start approval workflow
+Workflow -> Originator : Approved
+Originator -> DB : UPDATE payment_aggregate\n(status=APPROVED)
+
+== Execution ==
+Originator -> BEM : Send ISO payment
+BEM -> Originator : Execution result
+Originator -> DB : UPDATE payment_aggregate\n(status=COMPLETED / FAILED)
+Originator -> DB : INSERT payment_audit\n(execution result)
+
+== File Completion (Derived) ==
+Kafka_Payment -> Originator : FileParsingCompleted
+Originator -> DB : UPDATE file_aggregate\n(status=PROCESSING)
+
+Originator -> DB : DERIVE file status\nfrom payment states
+Originator -> DB : UPDATE file_aggregate\n(status=COMPLETED / PARTIAL)
+
+== UI Status Query ==
+UI -> API : GET /files/{id}
+API -> Originator : Query file & payments
+Originator -> DB : SELECT file_aggregate
+Originator -> DB : SELECT payment_aggregate\nWHERE fileId
+Originator -> API : File + payment summary
+API -> UI : Display results
+
+@enduml
