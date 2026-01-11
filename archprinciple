@@ -1,0 +1,207 @@
+Payment system
+Architecture Principles
+
+Document Version: 1.0
+Status: Approved – Design Baseline
+Applies To: Digital Client Payments Platform (UI, File, Bulk, Async Payments)
+
+1. Purpose
+
+This document defines the architectural principles governing the design and implementation of the Digital Client Payments (DCP) platform. These principles ensure that the solution is secure, scalable, resilient, auditable, and aligned with business and regulatory requirements across UK, US, and international payment schemes.
+
+2. Scope
+
+These principles apply to:
+
+Payment initiation (UI, bulk UI, file)
+
+File-based payments (Type-1 and Type-2)
+
+Payment orchestration and execution
+
+Supporting and external services (Entitlement, FX, Audit, Notifications)
+
+Integration with downstream systems (BEM, POM, GPP, SEPA, Faster Payments)
+
+3. Architecture Principles
+AP-01: Single Source of Truth
+
+Statement
+Each business concept must have one authoritative owner responsible for its lifecycle and state.
+
+Rationale
+Payments and files are long-lived, auditable entities. Ambiguous ownership leads to inconsistency and regulatory risk.
+
+Implications
+
+Payment and file lifecycle state is owned by Payment Originator
+
+Entitlement rules are owned by Entitlement Service
+
+Beneficiary and template data are owned by their respective services
+
+Binary files are stored in object storage, not databases
+
+AP-02: Domain-Driven Design Alignment
+
+Statement
+System boundaries must reflect business domains and bounded contexts, not technical layers.
+
+Rationale
+Payments are a complex business domain requiring explicit ownership and clear boundaries.
+
+Implications
+
+Payment Orchestration is the Core Domain
+
+Supporting domains (Entitlement, FX, Beneficiary) are isolated
+
+No shared databases across bounded contexts
+
+AP-03: Stateless Edge, Stateful Core
+
+Statement
+State must be owned only by core domain services; edge services must remain stateless.
+
+Rationale
+Stateless services scale easily and fail safely; stateful logic must be tightly controlled.
+
+Implications
+
+Payment API and File Processor are stateless
+
+Payment Originator owns all persistent business state
+
+File Processor never writes to domain databases
+
+AP-04: Fail Fast at System Boundaries
+
+Statement
+Invalid or unauthorized requests must be rejected as early as possible.
+
+Rationale
+Fail-fast reduces system load, improves user experience, and strengthens security.
+
+Implications
+
+File upload entitlement is enforced at Payment API
+
+Structural file validation occurs before business processing
+
+Unauthorized requests never enter the payment domain
+
+AP-05: Defense in Depth
+
+Statement
+Critical controls must be enforced at multiple architectural layers.
+
+Rationale
+Financial systems require layered protection against misuse, fraud, and system failures.
+
+Implications
+
+Ingress-level entitlement checks (Payment API)
+
+Domain-level entitlement checks (Payment Originator)
+
+Maker–Checker workflows
+
+Digital signing and fraud profiling
+
+AP-06: Strong Consistency for Financial State
+
+Statement
+All money-related state changes must be strongly consistent.
+
+Rationale
+Eventual consistency is unacceptable for payment execution and settlement.
+
+Implications
+
+Payment and file state transitions use ACID transactions
+
+Kafka and events are used for decoupling, not state ownership
+
+Reporting views may be eventually consistent (CQRS)
+
+AP-07: Event-Driven Integration with Explicit Ownership
+
+Statement
+Events are used to communicate facts, not to transfer ownership of state.
+
+Rationale
+Clear ownership avoids ambiguity and simplifies recovery.
+
+Implications
+
+File Processor emits parsing facts only
+
+Payment Originator emits domain events
+
+Audit and Notification services are event consumers only
+
+AP-08: Operational Simplicity over Theoretical Purity
+
+Statement
+Architecture decisions must prioritize operability, recoverability, and supportability.
+
+Rationale
+Operational failures in payment systems have severe business impact.
+
+Implications
+
+DB-backed work queues instead of distributed schedulers
+
+Internal worker loops instead of complex orchestration engines
+
+Minimal, purpose-driven Kafka topics
+
+AP-09: Idempotency and Crash Safety by Design
+
+Statement
+All processing must be idempotent and crash-resilient.
+
+Rationale
+Pods, networks, and external systems can fail at any time.
+
+Implications
+
+Transactional outbox pattern
+
+Idempotent consumers
+
+Retry with backoff
+
+State-driven processing
+
+AP-10: Auditability and Traceability
+
+Statement
+All significant business actions must be auditable, traceable, and replayable.
+
+Rationale
+Regulatory compliance requires full transparency and historical traceability.
+
+Implications
+
+Immutable audit events
+
+Separate Audit Service
+
+Persistent file artifacts in object storage
+
+Correlation IDs across systems
+
+4. Design Patterns Adopted
+Pattern	Purpose
+Domain-Driven Design	Business-aligned architecture
+Aggregates & Invariants	State consistency
+Saga / Process Manager	Long-running workflows
+Transactional Outbox	Reliable event publishing
+Database-Backed Work Queue	Safe async processing
+Competing Consumers	Horizontal scalability
+CQRS	Optimized read models
+Anti-Corruption Layer	Isolation from external systems
+Strategy Pattern	Scheme-specific validation
+Adapter Pattern	External integrations
+Retry with Backoff	Resilience
