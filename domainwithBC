@@ -1,0 +1,73 @@
+@startuml
+title DDD + C4 Combined View - Digital Client Payments
+
+package "CORE DOMAIN - PAYMENTS" {
+
+  rectangle "Payment Ingress Context\n(Container: Payment API)\nRole: Channel / Gateway" as Ingress
+
+  rectangle "File Processing Context\n(Container: File Processor)\nRole: Stateless Parsing" as FileProc
+
+  rectangle "Payment Orchestration Context\n(Container: Payment Originator)\nRole: System of Record\nAggregates: File, Payment" as Orchestration
+
+  rectangle "Workflow Context\n(Container: Workflow Service)\nRole: Maker Checker" as Workflow
+
+  rectangle "Execution Context\n(Container: BEM / POM)\nRole: Execution" as Execution
+
+  rectangle "Terminal Status Context\n(Container: Terminal Status Service)\nRole: Final Ack" as Terminal
+
+  rectangle "Payment Query Context\n(Container: Reporting Service)\nRole: CQRS Read Model" as Query
+}
+
+package "SUPPORTING DOMAIN - PARTY AND SETUP" {
+
+  rectangle "Beneficiary Context\n(Container: Beneficiary Service)\nRole: Master Data" as Beneficiary
+
+  rectangle "Template Context\n(Container: Template Service)\nRole: Reusable Payments" as Template
+}
+
+package "SUPPORTING DOMAIN - REFERENCE AND MARKET DATA" {
+
+  rectangle "FX Context\n(Container: External FX Service)\nRole: Rate Provider" as FX
+
+  rectangle "Reference Data Context\n(Container: CCSS, SWIFT)\nRole: Lookup" as RefData
+}
+
+package "SUPPORTING DOMAIN - RISK AND COMPLIANCE" {
+
+  rectangle "Digital Signature Context\n(Container: GSS)\nRole: Signing" as GSS
+
+  rectangle "Audit Context\n(Container: Audit Service)\nRole: Compliance" as Audit
+}
+
+package "GENERIC DOMAIN - COMMUNICATION" {
+
+  rectangle "Notification Context\n(Container: Notification Service)\nRole: Messaging" as Notify
+}
+
+Ingress --> Orchestration : Commands
+Ingress --> FileProc : FileToProcess
+
+FileProc --> Orchestration : Parsing Events
+
+Orchestration --> Workflow : Approval Request
+Workflow --> Orchestration : Approval Result
+
+Orchestration --> Execution : Execute
+Execution --> Terminal : Final Status
+Terminal --> Orchestration : Terminal Ack
+
+Orchestration --> Beneficiary : Query
+Orchestration --> Template : Query
+Orchestration --> FX : Get Rate
+Orchestration --> RefData : Lookup
+
+Orchestration --> Audit : Domain Events
+Orchestration --> Notify : Domain Events
+
+Orchestration --> Query : Domain Events
+Query --> Ingress : Read Model
+
+Orchestration --> GSS : Sign Request
+GSS --> Orchestration : Signature
+
+@enduml
