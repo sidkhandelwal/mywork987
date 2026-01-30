@@ -1,0 +1,184 @@
+Digital Client Payments (DCP)
+
+⸻
+
+1. Payment API (Payment Ingress Service)
+
+Responsibility
+Acts as the channel-facing entry point for UI and file-based payment requests. It performs authentication context propagation, ingress-level entitlement checks, idempotency handling, and request routing. It does not own or persist any business state.
+
+Design Patterns Used
+	•	API Gateway Pattern – Single entry point for payment channels
+	•	Facade Pattern – Simplifies access to core services
+	•	Fail-Fast Validation – Rejects unauthorized requests early
+	•	Anti-Corruption Layer (ACL) – Isolates channel models from domain models
+	•	Idempotency Pattern – Prevents duplicate submissions
+
+⸻
+
+2. File Processor Service
+
+Responsibility
+Parses uploaded payment files using streaming techniques and performs structural validation. It emits immutable parsing facts without owning any business or lifecycle state. The service is fully stateless and horizontally scalable.
+
+Design Patterns Used
+	•	Stateless Service Pattern – No persistent domain state
+	•	Streaming Parser Pattern – Efficient handling of large files
+	•	Competing Consumers Pattern – Parallel file processing
+	•	Event Producer Pattern – Emits parsing events
+	•	Single Responsibility Principle – Parsing only
+
+⸻
+
+3. Payment Originator Service (Core Domain)
+
+Responsibility
+Serves as the system of record for all payments and files. It owns the PaymentAggregate and FileAggregate lifecycles, applies business rules, orchestrates asynchronous processing, manages retries and delays, and coordinates execution with downstream systems.
+
+Design Patterns Used
+	•	Domain-Driven Design (DDD) – Aggregates and bounded contexts
+	•	Aggregate Pattern – PaymentAggregate, FileAggregate
+	•	Saga / Process Manager – Long-running payment workflows
+	•	Internal Worker Pattern – Stateful async processing
+	•	Transactional Outbox Pattern – Reliable event publishing
+	•	State Machine Pattern – Payment and file lifecycle control
+
+⸻
+
+4. Internal Worker (within Payment Originator)
+
+Responsibility
+Processes bulk and asynchronous payment flows by progressing domain state in a controlled, crash-safe manner. Handles retries, backoff, and future-dated execution without relying on external schedulers.
+
+Design Patterns Used
+	•	Database-Backed Work Queue – Durable async execution
+	•	Idempotent Consumer Pattern – Safe retries
+	•	Retry with Backoff Pattern – Resilient external calls
+	•	Pessimistic Locking Pattern – Safe concurrency across pods
+
+⸻
+
+5. Entitlement Service
+
+Responsibility
+Evaluates authorization policies determining whether users are permitted to initiate, approve, or execute payments based on roles, limits, schemes, and accounts. It owns entitlement rules but does not own payment state.
+
+Design Patterns Used
+	•	Policy Decision Point (PDP) – Centralized authorization logic
+	•	Rule Engine Pattern – Configurable entitlement policies
+	•	Query-Only Service Pattern – No side effects
+	•	Anti-Corruption Layer (ACL) – Protects domain from policy model
+
+⸻
+
+6. Workflow Service
+
+Responsibility
+Manages maker–checker approval workflows for payments and files, enforcing approval hierarchies and escalation rules. It operates independently from payment execution logic.
+
+Design Patterns Used
+	•	State Machine Pattern – Approval lifecycle
+	•	Process Manager Pattern – Approval orchestration
+	•	Command Pattern – Approval actions
+	•	Event Notification Pattern – Approval outcomes
+
+⸻
+
+7. Execution Service (BEM / POM Integration)
+
+Responsibility
+Handles conversion of payments into ISO-compliant formats and routes them to downstream execution systems. Execution results are returned asynchronously and correlated back to originating payments.
+
+Design Patterns Used
+	•	Adapter Pattern – Integration with downstream systems
+	•	Translator Pattern – ISO format conversion
+	•	Asynchronous Messaging Pattern – Non-blocking execution
+	•	Idempotent Receiver Pattern – Safe re-submission
+
+⸻
+
+8. Terminal Status Service
+
+Responsibility
+Consumes final acknowledgements from downstream payment systems and translates them into terminal business states. Ensures payment lifecycle closure and prevents further retries once finality is reached.
+
+Design Patterns Used
+	•	Event Consumer Pattern – Processes final status events
+	•	State Transition Guard Pattern – Prevents invalid updates
+	•	Correlation Identifier Pattern – Links callbacks to payments
+
+⸻
+
+9. Beneficiary Service
+
+Responsibility
+Maintains beneficiary master data, including bank accounts and addresses, for reuse across payments and templates. Acts as a supporting domain service queried by payment orchestration.
+
+Design Patterns Used
+	•	Master Data Management Pattern
+	•	Repository Pattern – Beneficiary persistence
+	•	Query Service Pattern – Read-optimized access
+
+⸻
+
+10. Template Service
+
+Responsibility
+Stores reusable payment templates that allow users to predefine payment instructions. Templates are resolved during payment initiation and validated during orchestration.
+
+Design Patterns Used
+	•	Template Method Pattern – Reusable payment structures
+	•	Versioning Pattern – Template evolution
+	•	Repository Pattern – Template storage
+
+⸻
+
+11. FX Service (External)
+
+Responsibility
+Provides foreign exchange rates for cross-currency payments. FX rates are retrieved during augmentation and persisted as part of the payment state.
+
+Design Patterns Used
+	•	Adapter Pattern – External FX provider integration
+	•	Cache-Aside Pattern – Rate caching
+	•	Timeout and Retry Pattern – Resilience
+
+⸻
+
+12. Audit Service
+
+Responsibility
+Consumes domain events to maintain an immutable audit trail for regulatory and compliance purposes. It does not participate in transaction processing.
+
+Design Patterns Used
+	•	Event Sourcing (Partial) – Immutable audit records
+	•	Event Consumer Pattern – Passive observation
+	•	Append-Only Storage Pattern – Compliance
+
+⸻
+
+13. Notification Service (External)
+
+Responsibility
+Delivers user notifications (email, SMS, push) based on payment lifecycle events. Operates asynchronously and never blocks payment processing.
+
+Design Patterns Used
+	•	Publish–Subscribe Pattern – Event-driven notifications
+	•	Asynchronous Messaging Pattern
+	•	Bulkhead Pattern – Failure isolation
+
+⸻
+
+14. Payment Query / Reporting Service
+
+Responsibility
+Provides optimized, read-only views of payments and files for UI search, export, and dashboards. Built using CQRS principles.
+
+Design Patterns Used
+	•	CQRS Pattern – Separate read models
+	•	Projection Pattern – Domain event materialization
+	•	Read-Optimized Data Model
+
+⸻
+
+One-line architectural summary (for documents)
